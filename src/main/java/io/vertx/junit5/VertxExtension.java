@@ -16,10 +16,13 @@
 
 package io.vertx.junit5;
 
+import static org.junit.jupiter.engine.Constants.TIMEOUT_MODE_PROPERTY_NAME;
+
 import io.vertx.core.Vertx;
 import org.junit.jupiter.api.extension.*;
 import org.junit.jupiter.api.extension.ExtensionContext.Namespace;
 import org.junit.jupiter.api.extension.ExtensionContext.Store;
+import org.junit.platform.commons.util.RuntimeUtils;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -169,22 +172,56 @@ public final class VertxExtension implements ParameterResolver, BeforeTestExecut
       return;
     }
 
+    boolean timeoutEnabled = extensionContext.getConfigurationParameter(TIMEOUT_MODE_PROPERTY_NAME).map(mode -> {
+      switch (mode) {
+        case "enabled":
+          return true;
+        case "disabled":
+          return false;
+        case "disabled_on_debug":
+          return !RuntimeUtils.isDebugMode();
+        default:
+          throw new ExtensionConfigurationException("Unsupported timeout mode: " + mode);
+      }
+    }).orElse(true);
+
     ContextList currentContexts = store(extensionContext).remove(TEST_CONTEXT_KEY, ContextList.class);
     if (currentContexts != null) {
       for (VertxTestContext context : currentContexts) {
-        int timeoutDuration = DEFAULT_TIMEOUT_DURATION;
-        TimeUnit timeoutUnit = DEFAULT_TIMEOUT_UNIT;
-        Optional<Method> testMethod = extensionContext.getTestMethod();
-        if (testMethod.isPresent() && testMethod.get().isAnnotationPresent(Timeout.class)) {
-          Timeout annotation = extensionContext.getRequiredTestMethod().getAnnotation(Timeout.class);
-          timeoutDuration = annotation.value();
-          timeoutUnit = annotation.timeUnit();
-        } else if (extensionContext.getRequiredTestClass().isAnnotationPresent(Timeout.class)) {
-          Timeout annotation = extensionContext.getRequiredTestClass().getAnnotation(Timeout.class);
-          timeoutDuration = annotation.value();
-          timeoutUnit = annotation.timeUnit();
-        }
-        if (context.awaitCompletion(timeoutDuration, timeoutUnit)) {
+        if (timeoutEnabled) {
+          int timeoutDuration = DEFAULT_TIMEOUT_DURATION;
+          TimeUnit timeoutUnit = DEFAULT_TIMEOUT_UNIT;
+          Optional<Method> testMethod = extensionContext.getTestMethod();
+          if (testMethod.isPresent() && testMethod.get().isAnnotationPresent(Timeout.class)) {
+            Timeout annotation = extensionContext.getRequiredTestMethod().getAnnotation(Timeout.class);
+            timeoutDuration = annotation.value();
+            timeoutUnit = annotation.timeUnit();
+          } else if (extensionContext.getRequiredTestClass().isAnnotationPresent(Timeout.class)) {
+            Timeout annotation = extensionContext.getRequiredTestClass().getAnnotation(Timeout.class);
+            timeoutDuration = annotation.value();
+            timeoutUnit = annotation.timeUnit();
+          }
+          if (context.awaitCompletion(timeoutDuration, timeoutUnit)) {
+            if (context.failed()) {
+              Throwable throwable = context.causeOfFailure();
+              if (throwable instanceof Exception) {
+                throw (Exception) throwable;
+              } else {
+                throw new AssertionError(throwable);
+              }
+            }
+          } else {
+            String message = "The test execution timed out. Make sure your asynchronous code "
+              + "includes calls to either VertxTestContext#completeNow(), VertxTestContext#failNow() "
+              + "or Checkpoint#flag()";
+            message = message +  context.unsatisfiedCheckpointCallSites()
+              .stream()
+              .map(element -> String.format("-> checkpoint at %s", element))
+              .collect(Collectors.joining("\n", "\n\nUnsatisfied checkpoints diagnostics:\n", ""));
+            throw new TimeoutException(message);
+          }
+        } else {
+          context.awaitCompletion();
           if (context.failed()) {
             Throwable throwable = context.causeOfFailure();
             if (throwable instanceof Exception) {
@@ -193,15 +230,6 @@ public final class VertxExtension implements ParameterResolver, BeforeTestExecut
               throw new AssertionError(throwable);
             }
           }
-        } else {
-          String message = "The test execution timed out. Make sure your asynchronous code "
-            + "includes calls to either VertxTestContext#completeNow(), VertxTestContext#failNow() "
-            + "or Checkpoint#flag()";
-          message = message +  context.unsatisfiedCheckpointCallSites()
-            .stream()
-            .map(element -> String.format("-> checkpoint at %s", element))
-            .collect(Collectors.joining("\n", "\n\nUnsatisfied checkpoints diagnostics:\n", ""));
-          throw new TimeoutException(message);
         }
       }
     }

@@ -392,4 +392,18 @@ public final class VertxTestContext {
   }
 
   // ........................................................................................... //
+
+  /**
+   * Wait for the completion of the test context.
+   * <p>
+   * This method is automatically called by the {@link VertxExtension} when using parameter injection of {@link VertxTestContext}.
+   * You should only call it when you instantiate this class manually.
+   *
+   * @throws InterruptedException when the thread has been interrupted.
+   */
+  public void awaitCompletion() throws InterruptedException {
+    releaseLatch.await();
+  }
+
+  // ........................................................................................... //
 }

@@ -24,7 +24,7 @@
   </parent>
 
   <artifactId>vertx-junit5</artifactId>
-  <version>4.3.4-SNAPSHOT</version>
+  <version>4.3.4-junit-jupiter-execution-timeout-mode-SNAPSHOT</version>
 
   <name>Vert.x JUnit 5 support :: Core</name>
 
@@ -90,7 +90,7 @@
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter-engine</artifactId>
-      <scope>runtime</scope>
+      <scope>compile</scope>
     </dependency>
 
     <dependency>
